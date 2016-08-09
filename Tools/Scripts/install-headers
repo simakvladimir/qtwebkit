@@ -1,0 +1,64 @@
+#!/usr/bin/perl -w
+
+use strict;
+use warnings;
+
+use Cwd qw(abs_path);
+use File::Find;
+use File::Copy;
+use File::Basename;
+use File::Copy::Recursive qw(dircopy pathmk);
+use Getopt::Long qw(:config pass_through);
+
+my $showHelp = 0;
+my $incDir;
+my $outDir;
+
+my $programName = basename($0);
+my $usage = <<EOF;
+Usage: $programName [options]
+  --help                Show this help message
+  --incdir              Directory with include files (*.h)
+  --outdir              Output directory
+EOF
+
+GetOptions(
+  'help' => \$showHelp,
+  'incdir=s' => \$incDir,
+  'outdir=s' => \$outDir
+) or die("Error in command line arguments\n");
+
+if ($showHelp){
+  print STDERR $usage;
+  exit 1;
+}
+
+$incDir = File::Spec->canonpath($incDir);
+$outDir = File::Spec->canonpath($outDir);
+pathmk($outDir) or die("Can't create path: $!\n");
+dircopy($incDir, $outDir) or die("Dir copy error: $!\n");
+
+find(\&collectAndFillHeaders, $outDir);
+print "Out Dir : $outDir\n";
+
+sub collectAndFillHeaders {
+  my $filePath = File::Spec->canonpath($File::Find::name);
+  my $file = $_;
+    if ($filePath =~ /.h$/) {
+        my $origHeaderFile;
+        open(FILE, "<$file") or die "Could not open $filePath.\n";
+        while (<FILE>) {
+           if (/\s*#include\s*"(\.\..*\.h)/) {
+             my $relativePath = $1;
+             $origHeaderFile =
+               File::Spec->canonpath(dirname($filePath =~ s/\Q$outDir/$incDir/r)."/".$relativePath);
+             last;
+           }
+        }
+        close(FILE);
+
+        if (defined($origHeaderFile)){
+          copy($origHeaderFile, $filePath) or die "Copy failed: $!";
+        }
+    }
+}
